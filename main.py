@@ -1,8 +1,6 @@
 import requests
 from requests.auth import HTTPDigestAuth
-import json
 from datetime import datetime
-import time
 
 class DahuaCamera:
     def __init__(self, ip, username, password):
