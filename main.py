@@ -1,6 +1,7 @@
 import requests
 from requests.auth import HTTPDigestAuth
 import json
+from datetime import datetime
 
 class DahuaCamera:
     def __init__(self, ip, username, password):
@@ -9,135 +10,70 @@ class DahuaCamera:
         self.password = password
         self.base_url = f"http://{ip}/cgi-bin"
         self.session = requests.Session()
-    
-    def check_access_control_support(self):
-        """Проверить поддержку Access Control"""
-        url = f"{self.base_url}/magicBox.cgi?action=getProductDefinition"
-        
-        try:
-            response = self.session.get(
-                url,
-                auth=HTTPDigestAuth(self.username, self.password),
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                print("Информация о продукте:")
-                print(response.text)
-                
-                # Проверяем наличие ключевых слов
-                if "access" in response.text.lower() or "door" in response.text.lower():
-                    print("✓ Access Control может быть поддерживаем")
-                else:
-                    print("✗ Access Control не поддерживается")
-                return True
-            else:
-                print(f"Ошибка получения информации: {response.status_code}")
-                return False
-                
-        except Exception as e:
-            print(f"Ошибка: {e}")
-            return False
-    
-    def get_capability(self):
-        """Получить capabilities устройства"""
-        url = f"{self.base_url}/magicBox.cgi?action=getCapability"
-        
-        try:
-            response = self.session.get(
-                url,
-                auth=HTTPDigestAuth(self.username, self.password),
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                print("Capabilities:")
-                print(response.text)
-                return response.text
-            return None
-            
-        except Exception as e:
-            print(f"Ошибка: {e}")
-            return None
-    
-    def open_door(self, channel=1, user_id=None, open_type="Remote"):
+  
+    def get_current_time(self):
         """
-        Открыть дверь/ворота
-        
-        Args:
-            channel: номер канала двери (начинается с 1)
-            user_id: ID пользователя (опционально)
-            open_type: тип открытия ("Remote" по умолчанию)
+        Получить текущее время камеры
         
         Returns:
-            bool: True если успешно
+            dict: Словарь с результатами:
+                - success (bool): Успешность операции
+                - camera_time (str): Время камеры в формате "yyyy-mm-dd hh:mm:ss"
+                - raw_response (str): Сырой ответ от камеры
+                - local_time (str): Текущее локальное время для сравнения
         """
-        url = f"{self.base_url}/accessControl.cgi"
-        params = {
-            "action": "openDoor",
-            "channel": channel,
-            "Type": open_type
-        }
-        
-        if user_id is not None:
-            params["UserID"] = user_id
+        url = f"{self.base_url}/global.cgi?action=getCurrentTime"
         
         try:
-            response = requests.get(
+            response = self.session.get(
                 url,
-                params=params,
                 auth=HTTPDigestAuth(self.username, self.password),
                 timeout=5
             )
             
-            if response.status_code == 200 and response.text.strip() == "OK":
-                print(f"✓ Ворота {channel} успешно открыты!")
-                return True
-            else:
-                print(f"✗ Ошибка открытия ворот: {response.status_code} - {response.text}")
-                return False
+            if response.status_code == 200:
+                # Dahua обычно возвращает время в формате: "2024-02-05 14:30:45"
+                camera_time = response.text.strip()
                 
-        except requests.exceptions.RequestException as e:
-            print(f"✗ Ошибка подключения: {e}")
-            return False
-    
-    def close_door(self, channel=1, user_id=None, close_type="Remote"):
-        """Закрыть дверь/ворота"""
-        url = f"{self.base_url}/accessControl.cgi"
-        params = {
-            "action": "closeDoor",
-            "channel": channel,
-            "Type": close_type
-        }
+                # Валидация формата времени
+                try:
+                    parsed_time = datetime.strptime(camera_time, "%Y-%m-%d %H:%M:%S")
+                    is_valid = True
+                except ValueError:
+                    is_valid = False
+                
+                result = {
+                    "success": True,
+                    "camera_time": camera_time,
+                    "raw_response": response.text,
+                    "local_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "is_valid_format": is_valid
+                }
+                
+                if is_valid:
+                    print(f"✓ Текущее время камеры: {camera_time}")
+                else:
+                    print(f"⚠ Получено время в нестандартном формате: {camera_time}")
+                
+                return result
+            else:
+                print(f"✗ Ошибка получения времени: {response.status_code} - {response.text}")
+                return {
+                    "success": False,
+                    "error_code": response.status_code,
+                    "error_message": response.text.strip()
+                }
+                
+        except requests.exceptions.Timeout:
+            print("✗ Таймаут подключения к камере")
+            return {"success": False, "error": "timeout"}
+        except requests.exceptions.ConnectionError:
+            print("✗ Ошибка подключения к камере")
+            return {"success": False, "error": "connection_error"}
+        except Exception as e:
+            print(f"✗ Неизвестная ошибка: {e}")
+            return {"success": False, "error": str(e)}
         
-        if user_id is not None:
-            params["UserID"] = user_id
-        
-        response = requests.get(
-            url,
-            params=params,
-            auth=HTTPDigestAuth(self.username, self.password)
-        )
-        
-        return response.status_code == 200 and response.text.strip() == "OK"
-    
-    def get_door_status(self, channel=1):
-        """Получить статус двери"""
-        url = f"{self.base_url}/accessControl.cgi"
-        params = {
-            "action": "getDoorStatus",
-            "channel": channel
-        }
-        
-        response = requests.get(
-            url,
-            params=params,
-            auth=HTTPDigestAuth(self.username, self.password)
-        )
-        
-        # Возвращает данные в формате key=value
-        return response.text
-
     def trigger_alarm_output(self, output_id=0, duration=3):
         """
         Активировать выход реле (аларм)
@@ -291,30 +227,46 @@ if __name__ == "__main__":
     PASSWORD = "Donsmart2019"
     
     camera = DahuaCamera(CAMERA_IP, USERNAME, PASSWORD)
+
+    # Получение текущего времени камеры
+    print("=== Получение времени камеры ===")
+    result = camera.get_current_time()
     
-    # 1. Проверяем поддержку
-    #print("=== Проверка поддержки ===")
-    #camera.check_access_control_support()
+    if result["success"]:
+        print(f"Время камеры: {result['camera_time']}")
+        print(f"Локальное время: {result['local_time']}")
+        
+        # Расчет разницы во времени (опционально)
+        try:
+            cam_dt = datetime.strptime(result['camera_time'], "%Y-%m-%d %H:%M:%S")
+            local_dt = datetime.strptime(result['local_time'], "%Y-%m-%d %H:%M:%S")
+            diff = abs((cam_dt - local_dt).total_seconds())
+            print(f"Разница: {diff:.0f} секунд")
+            
+            if diff > 60:
+                print("⚠ Время камеры расходится с локальным более чем на 1 минуту!")
+        except:
+            pass
     
-    # 2. Получаем capabilities
-    #print("\n=== Capabilities ===")
-    #camera.get_capability()
-    
-    # 3. Пробуем открыть ворота через trafficSnap (для ANPR)
     '''
+    # 1. Пробуем открыть ворота через trafficSnap (для ANPR)
+    
     print("\n=== Попытка открыть ворота ===")
     if camera.open_strobe(channel=1, plate_number="A055AA77", open_type="Normal"):
         print("Успех!")
-    '''
-    # 3. Пробуем открыть ворота через trafficSnap (для ANPR)
+    
+    pause(17000)
+    # 2. Пробуем закрыть ворота через trafficSnap (для ANPR)
     print("\n=== Попытка закрыть ворота ===")
     if camera.close_strobe(location=0):
         print("Успех!")
+    '''
 
-    '''else:
-        # 4. Альтернатива: активируем реле
-        print("\n=== Активация реле ===")
-        if camera.trigger_alarm_output(output_id=0, duration=3):
-            print("Реле активировано!")
-            pause(3000)
-            camera.stop_alarm_output(output_id=0)'''
+
+    # 3. Альтернатива: активируем реле
+    print("\n=== Активация реле тревоги ===")
+    if camera.trigger_alarm_output(output_id=0, duration=3):
+        print("Реле активировано!")
+        pause(12000)
+        camera.stop_alarm_output(output_id=0)
+        print("Реле деактивировано!")
