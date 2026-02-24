@@ -2,8 +2,11 @@ import logging
 import requests
 from requests.auth import HTTPDigestAuth
 from datetime import datetime
+from flask import Flask, jsonify, request
 
+# ---------------------------------------------------------------------------
 # Настройка логгера
+# ---------------------------------------------------------------------------
 logger = logging.getLogger("dahua_camera")
 logger.setLevel(logging.DEBUG)
 
@@ -21,6 +24,9 @@ logger.addHandler(_console_handler)
 logger.addHandler(_file_handler)
 
 
+# ---------------------------------------------------------------------------
+# Класс управления камерой Dahua
+# ---------------------------------------------------------------------------
 class DahuaCamera:
     def __init__(self, ip, username, password):
         self.ip = ip
@@ -32,14 +38,15 @@ class DahuaCamera:
 
     def get_current_time(self):
         """
-        Получить текущее время камеры
+        Получить текущее время камеры.
 
         Returns:
-            dict: Словарь с результатами:
-                - success (bool): Успешность операции
-                - camera_time (str): Время камеры в формате "yyyy-mm-dd hh:mm:ss"
-                - raw_response (str): Сырой ответ от камеры
-                - local_time (str): Текущее локальное время для сравнения
+            dict:
+                - success (bool)
+                - camera_time (str): "yyyy-mm-dd hh:mm:ss"
+                - raw_response (str)
+                - local_time (str)
+                - is_valid_format (bool)
         """
         url = f"{self.base_url}/global.cgi?action=getCurrentTime"
         logger.debug("Запрос времени камеры: GET %s", url)
@@ -96,14 +103,17 @@ class DahuaCamera:
             return {"success": False, "error": str(e)}
 
     def open_strobe(self, channel=1, plate_number="", open_type="Normal"):
-        '''
-        Открыть стробоскоп/ворота через Traffic Snap API
+        """
+        Открыть ворота через Traffic Snap API.
 
         Args:
-            channel: канал
-            plate_number: номер распознанного авто
-            open_type: "Normal", "Emergency" и т.д.
-        '''
+            channel (int): Канал камеры.
+            plate_number (str): Номер автомобиля.
+            open_type (str): "Normal", "Emergency" и т.д.
+
+        Returns:
+            bool: True — ворота открыты, False — ошибка.
+        """
         url = f"{self.base_url}/trafficSnap.cgi"
         params = {
             "action": "openStrobe",
@@ -146,37 +156,99 @@ class DahuaCamera:
             return False
 
 
-# Пример использования
-if __name__ == "__main__":
-    CAMERA_IP = "192.168.84.2"
-    USERNAME = "admin"
-    PASSWORD = "Donsmart2019"
+# ---------------------------------------------------------------------------
+# Конфигурация
+# ---------------------------------------------------------------------------
+CAMERA_IP = "192.168.84.2"
+USERNAME   = "admin"
+PASSWORD   = "Donsmart2019"
+SERVER_HOST = "0.0.0.0"
+SERVER_PORT = 5000
 
-    logger.info("=== Запуск программы управления камерой ===")
-    camera = DahuaCamera(CAMERA_IP, USERNAME, PASSWORD)
+# ---------------------------------------------------------------------------
+# Flask-приложение
+# ---------------------------------------------------------------------------
+app    = Flask(__name__)
+camera = DahuaCamera(CAMERA_IP, USERNAME, PASSWORD)
 
-    # Получение текущего времени камеры
-    logger.info("=== Получение времени камеры ===")
+
+@app.route("/health", methods=["GET"])
+def health():
+    """Проверка работоспособности сервера."""
+    logger.debug("GET /health")
+    return jsonify({"status": "ok"}), 200
+
+
+@app.route("/api/time", methods=["GET"])
+def api_get_time():
+    """
+    Получить текущее время камеры.
+
+    Response 200:
+        {
+            "success": true,
+            "camera_time": "2026-02-24 12:00:00",
+            "local_time":  "2026-02-24 12:00:05",
+            "is_valid_format": true,
+            "raw_response": "2026-02-24 12:00:00"
+        }
+
+    Response 502 (ошибка со стороны камеры):
+        {"success": false, "error": "timeout"}
+    """
+    logger.info("GET /api/time — запрос времени камеры")
     result = camera.get_current_time()
 
-    if result["success"]:
-        logger.info("Время камеры: %s", result["camera_time"])
-        logger.info("Локальное время: %s", result["local_time"])
+    if result.get("success"):
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 502
 
-        try:
-            cam_dt = datetime.strptime(result["camera_time"], "%Y-%m-%d %H:%M:%S")
-            local_dt = datetime.strptime(result["local_time"], "%Y-%m-%d %H:%M:%S")
-            diff = abs((cam_dt - local_dt).total_seconds())
-            logger.info("Разница времени: %.0f сек", diff)
 
-            if diff > 60:
-                logger.warning(
-                    "Время камеры расходится с локальным на %.0f сек (более 1 мин)!", diff
-                )
-        except Exception:
-            logger.debug("Не удалось вычислить разницу времени")
+@app.route("/api/gate/open", methods=["POST"])
+def api_open_gate():
+    """
+    Открыть ворота.
 
-    # Пробуем открыть ворота через trafficSnap (для ANPR)
-    logger.info("=== Попытка открыть ворота ===")
-    #if camera.open_strobe(channel=1, plate_number="A001AA111", open_type="Normal"):
-    #    logger.info("Успех!")
+    Request body (JSON, все поля опциональны):
+        {
+            "channel":      1,
+            "plate_number": "A001AA111",
+            "open_type":    "Normal"
+        }
+
+    Response 200:
+        {"success": true, "message": "Gate opened"}
+
+    Response 502 (ошибка со стороны камеры):
+        {"success": false, "message": "Failed to open gate"}
+    """
+    body = request.get_json(silent=True) or {}
+
+    channel      = body.get("channel",      1)
+    plate_number = body.get("plate_number", "")
+    open_type    = body.get("open_type",    "Normal")
+
+    logger.info(
+        "POST /api/gate/open — channel=%s, plate='%s', type=%s",
+        channel, plate_number, open_type
+    )
+
+    success = camera.open_strobe(
+        channel=channel,
+        plate_number=plate_number,
+        open_type=open_type
+    )
+
+    if success:
+        return jsonify({"success": True,  "message": "Gate opened"}),          200
+    else:
+        return jsonify({"success": False, "message": "Failed to open gate"}),  502
+
+
+# ---------------------------------------------------------------------------
+# Точка входа
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    logger.info("=== Запуск HTTP-сервера на %s:%s ===", SERVER_HOST, SERVER_PORT)
+    app.run(host=SERVER_HOST, port=SERVER_PORT)
