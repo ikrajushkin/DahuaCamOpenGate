@@ -9,8 +9,8 @@ info:
   version: 1.0.0
 
 servers:
-  - url: http://localhost:5000
-    description: Локальный сервер
+  - url: http://37.204.151.209:35008
+    description: Сервер управления воротами в ЖК Физтехпарк (ГК Основа)
 
 paths:
 

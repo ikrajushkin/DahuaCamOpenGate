@@ -18,45 +18,104 @@ sudo apt install -y python3 python3-pip python3-venv git
 
 ---
 
-## 2. Клонирование репозитория
+## 2. Настройка SSH Deploy Key (доступ к приватному репозиторию)
+
+Репозиторий приватный. Для доступа сервера к GitHub используется SSH Deploy Key —
+ключ с правами **только на чтение** одного репозитория.
+
+### 2.1 Создать SSH-ключ от имени www-data
+
+```bash
+sudo mkdir -p /var/lib/www-data/.ssh
+sudo ssh-keygen -t ed25519 -C "dahua-gate-deploy" \
+    -f /var/lib/www-data/.ssh/id_ed25519 -N ""
+sudo chown -R www-data:www-data /var/lib/www-data/.ssh
+sudo chmod 700 /var/lib/www-data/.ssh
+sudo chmod 600 /var/lib/www-data/.ssh/id_ed25519
+```
+
+### 2.2 Создать SSH-конфиг для www-data
+
+```bash
+sudo tee /var/lib/www-data/.ssh/config > /dev/null <<EOF
+Host github.com
+    IdentityFile /var/lib/www-data/.ssh/id_ed25519
+    StrictHostKeyChecking no
+EOF
+sudo chmod 600 /var/lib/www-data/.ssh/config
+sudo chown www-data:www-data /var/lib/www-data/.ssh/config
+```
+
+### 2.3 Скопировать публичный ключ
+
+```bash
+sudo cat /var/lib/www-data/.ssh/id_ed25519.pub
+```
+
+Скопировать весь вывод (строка вида `ssh-ed25519 AAAA... dahua-gate-deploy`).
+
+### 2.4 Добавить ключ в GitHub
+
+1. Открыть репозиторий на GitHub
+2. Перейти: **Settings → Deploy keys → Add deploy key**
+3. Заполнить:
+   - **Title**: `prod-server` (или любое понятное название)
+   - **Key**: вставить скопированный публичный ключ
+   - **Allow write access**: ❌ не ставить
+4. Нажать **Add key**
+
+### 2.5 Проверить подключение
+
+```bash
+sudo -u www-data ssh -T git@github.com
+```
+
+Ожидаемый ответ (exit code 1 — это нормально для GitHub):
+```
+Hi ikrajushkin/DahuaCamOpenGate! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+Если вместо этого ошибка — проверить, что ключ добавлен в Deploy keys репозитория.
+
+---
+
+## 3. Клонирование репозитория
 
 ```bash
 sudo mkdir -p /opt/dahua-gate
-sudo chown $USER:$USER /opt/dahua-gate
+sudo chown www-data:www-data /opt/dahua-gate
 
-git clone https://github.com/ikrajushkin/DahuaCamOpenGate.git /opt/dahua-gate
-cd /opt/dahua-gate
+sudo -u www-data git clone git@github.com:ikrajushkin/DahuaCamOpenGate.git /opt/dahua-gate
 ```
 
 ---
 
-## 3. Виртуальное окружение и зависимости
+## 4. Виртуальное окружение и зависимости
 
 ```bash
-python3 -m venv env
-source env/bin/activate
-
-pip install --upgrade pip
-pip install -r requirements.txt
-pip install gunicorn
+cd /opt/dahua-gate
+sudo -u www-data python3 -m venv env
+sudo -u www-data env/bin/pip install --upgrade pip
+sudo -u www-data env/bin/pip install -r requirements.txt
+sudo -u www-data env/bin/pip install gunicorn
 ```
 
 ---
 
-## 4. Настройка переменных окружения
+## 5. Настройка переменных окружения
 
 Файлы `.env.dev` и `.env.prod` **не хранятся в репозитории** — их нужно создать вручную
 на основе шаблона `.env.example`.
 
 ```bash
-cat .env.example          # посмотреть шаблон
+cat /opt/dahua-gate/.env.example          # посмотреть шаблон
 ```
 
 ### Для dev-окружения
 
 ```bash
-cp .env.example .env.dev
-nano .env.dev
+sudo -u www-data cp /opt/dahua-gate/.env.example /opt/dahua-gate/.env.dev
+sudo nano /opt/dahua-gate/.env.dev
 ```
 
 Содержимое `.env.dev`:
@@ -73,8 +132,8 @@ SERVER_PORT=5000
 ### Для prod-окружения
 
 ```bash
-cp .env.example .env.prod
-nano .env.prod
+sudo -u www-data cp /opt/dahua-gate/.env.example /opt/dahua-gate/.env.prod
+sudo nano /opt/dahua-gate/.env.prod
 ```
 
 Содержимое `.env.prod`:
@@ -92,7 +151,7 @@ SERVER_PORT=5000
 
 ---
 
-## 5. Режим DEV — ручной запуск с отладкой
+## 6. Режим DEV — ручной запуск с отладкой
 
 Используется при разработке и отладке. Flask dev-сервер, автоперезагрузка при изменении кода.
 
@@ -115,26 +174,18 @@ curl -X POST http://127.0.0.1:5000/api/gate/open \
 
 ---
 
-## 6. Режим PROD — запуск через Gunicorn
+## 7. Режим PROD — запуск через Gunicorn
 
-### 6.1 Ручной запуск (проверка перед настройкой службы)
+### 7.1 Ручной запуск (проверка перед настройкой службы)
 
 ```bash
 cd /opt/dahua-gate
-source env/bin/activate
-
-ENV_FILE=.env.prod gunicorn --workers 2 --bind 0.0.0.0:5000 main:app
+ENV_FILE=.env.prod env/bin/gunicorn --workers 2 --bind 0.0.0.0:5000 main:app
 ```
 
 Убедиться что сервер отвечает, затем остановить Ctrl+C.
 
-### 6.2 Автозапуск через systemd
-
-Назначить права на директорию:
-
-```bash
-sudo chown -R www-data:www-data /opt/dahua-gate
-```
+### 7.2 Автозапуск через systemd
 
 Создать файл службы:
 
@@ -174,7 +225,7 @@ sudo systemctl start dahua-gate
 
 ---
 
-## 7. Проверка работы prod-службы
+## 8. Проверка работы prod-службы
 
 ```bash
 # Статус
@@ -192,7 +243,7 @@ curl http://localhost:5000/health
 
 ---
 
-## 8. Открытие порта в файрволе (если активен ufw)
+## 9. Открытие порта в файрволе (если активен ufw)
 
 ```bash
 sudo ufw allow 5000/tcp
@@ -201,7 +252,17 @@ sudo ufw status
 
 ---
 
-## 9. Обновление приложения из репозитория
+## 10. Настройка скрипта обновления
+
+Сделать `update.sh` исполняемым (однократно, после клонирования):
+
+```bash
+sudo chmod +x /opt/dahua-gate/update.sh
+```
+
+---
+
+## 11. Обновление приложения из репозитория
 
 Для обновления предусмотрен скрипт `update.sh`, который выполняет все шаги автоматически:
 
@@ -210,21 +271,14 @@ sudo /opt/dahua-gate/update.sh
 ```
 
 Скрипт:
+- проверяет SSH-доступ к GitHub перед началом работы
 - проверяет наличие новых коммитов (без обновления, если версия актуальна)
 - показывает список изменений и изменённых файлов
 - обновляет зависимости только если изменился `requirements.txt`
 - перезапускает службу и проверяет HTTP-ответ
 - выводит итоговую версию (хэш и сообщение последнего коммита)
 
-Подготовить скрипт к запуску (однократно, после клонирования):
-
-```bash
-chmod +x /opt/dahua-gate/update.sh
-```
-
----
-
-### 9.1 Проверить, что изменилось в репозитории (вручную)
+### 11.1 Проверить, что изменилось в репозитории (вручную)
 
 ```bash
 cd /opt/dahua-gate
@@ -237,13 +291,13 @@ sudo -u www-data git log HEAD..origin/main --oneline
 sudo -u www-data git diff HEAD origin/main --name-only
 ```
 
-### 9.2 Получить обновление
+### 11.2 Получить обновление
 
 ```bash
 sudo -u www-data git pull
 ```
 
-### 9.3 Обновить зависимости (если изменился requirements.txt)
+### 11.3 Обновить зависимости (если изменился requirements.txt)
 
 Выполнять только если `git diff` или `git log` показал изменения в `requirements.txt`:
 
@@ -251,13 +305,13 @@ sudo -u www-data git pull
 sudo -u www-data env/bin/pip install -r requirements.txt
 ```
 
-### 9.4 Перезапустить службу
+### 11.4 Перезапустить службу
 
 ```bash
 sudo systemctl restart dahua-gate
 ```
 
-### 9.5 Проверить успешность обновления
+### 11.5 Проверить успешность обновления
 
 ```bash
 # Убедиться, что служба запустилась
@@ -270,7 +324,7 @@ curl http://localhost:5000/health
 sudo journalctl -u dahua-gate -n 30
 ```
 
-### 9.6 Откат к предыдущей версии (если что-то пошло не так)
+### 11.6 Откат к предыдущей версии (если что-то пошло не так)
 
 ```bash
 # Посмотреть историю коммитов
@@ -335,4 +389,9 @@ sudo systemctl restart dahua-gate
 ├── update.sh         # Скрипт обновления из GitHub и перезапуска службы
 ├── camera.log        # Лог-файл приложения (создаётся при запуске)
 └── DEPLOY.md         # Данная инструкция
+
+/var/lib/www-data/.ssh/
+├── id_ed25519        # Приватный SSH Deploy Key (только для чтения репозитория)
+├── id_ed25519.pub    # Публичный ключ (добавлен в GitHub → Deploy keys)
+└── config            # SSH-конфиг: привязка ключа к github.com
 ```
