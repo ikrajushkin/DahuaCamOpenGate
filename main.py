@@ -1,8 +1,12 @@
 import logging
+import os
 import requests
 from requests.auth import HTTPDigestAuth
 from datetime import datetime
 from flask import Flask, jsonify, request
+from dotenv import load_dotenv
+
+load_dotenv(os.getenv("ENV_FILE", ".env"))
 
 # ---------------------------------------------------------------------------
 # Настройка логгера
@@ -157,13 +161,13 @@ class DahuaCamera:
 
 
 # ---------------------------------------------------------------------------
-# Конфигурация
+# Конфигурация (из переменных окружения)
 # ---------------------------------------------------------------------------
-CAMERA_IP = "192.168.84.2"
-USERNAME   = "admin"
-PASSWORD   = "Donsmart2019"
-SERVER_HOST = "0.0.0.0"
-SERVER_PORT = 5000
+CAMERA_IP   = os.environ["CAMERA_IP"]
+USERNAME    = os.environ["CAMERA_USERNAME"]
+PASSWORD    = os.environ["CAMERA_PASSWORD"]
+SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
 
 # ---------------------------------------------------------------------------
 # Flask-приложение

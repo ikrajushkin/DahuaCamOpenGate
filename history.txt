@@ -140,3 +140,71 @@
      добавлен раздел Returns (bool)
 
 ================================================================================
+
+--------------------------------------------------------------------------------
+Дата: 2026-02-25
+Задача: Вынос учётных данных в переменные окружения, поддержка dev/prod режимов
+--------------------------------------------------------------------------------
+
+ОПИСАНИЕ ИЗМЕНЕНИЙ
+==================
+
+Файл: requirements.txt
+  - Добавлена зависимость: python-dotenv
+
+Файл: main.py
+  1. ДОБАВЛЕНЫ ИМПОРТЫ
+     - import os
+     - from dotenv import load_dotenv
+
+  2. ЗАГРУЗКА .ENV-ФАЙЛА
+     - load_dotenv(os.getenv("ENV_FILE", ".env"))
+     - Файл окружения задаётся через переменную ENV_FILE при запуске.
+       Если ENV_FILE не задана — загружается ".env" (для обратной совместимости).
+
+  3. КОНФИГУРАЦИЯ ПЕРЕВЕДЕНА НА ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ
+     До:
+       CAMERA_IP   = "192.168.84.2"
+       USERNAME    = "admin"
+       PASSWORD    = "Donsmart2019"
+       SERVER_HOST = "0.0.0.0"
+       SERVER_PORT = 5000
+     После:
+       CAMERA_IP   = os.environ["CAMERA_IP"]
+       USERNAME    = os.environ["CAMERA_USERNAME"]
+       PASSWORD    = os.environ["CAMERA_PASSWORD"]
+       SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+       SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
+
+     CAMERA_IP, CAMERA_USERNAME, CAMERA_PASSWORD — обязательные,
+     при отсутствии приложение завершится с KeyError.
+     SERVER_HOST и SERVER_PORT — опциональные, есть значения по умолчанию.
+
+Новые файлы:
+  .env.dev     — конфигурация для разработки (SERVER_HOST=127.0.0.1)
+  .env.prod    — конфигурация для продакшна (SERVER_HOST=0.0.0.0)
+  .env.example — шаблон без реальных значений (хранится в репозитории)
+
+Файл: .gitignore
+  - Добавлены в список игнорируемых: .env.dev, .env.prod
+
+Файл: DEPLOY.md
+  - Добавлен раздел "Настройка переменных окружения"
+  - Описан запуск в режиме DEV: ENV_FILE=.env.dev python main.py
+  - Описан запуск в режиме PROD: ENV_FILE=.env.prod gunicorn ...
+  - Добавлена таблица сравнения режимов DEV / PROD
+  - Обновлена структура файлов проекта
+
+СПОСОБЫ ЗАПУСКА
+===============
+
+  DEV (разработка):
+    ENV_FILE=.env.dev python main.py
+
+  PROD (продакшн, gunicorn):
+    ENV_FILE=.env.prod gunicorn --workers 2 --bind 0.0.0.0:5000 main:app
+
+  PROD через systemd (переменная окружения задаётся в .service-файле):
+    Environment="ENV_FILE=.env.prod"
+
+================================================================================
