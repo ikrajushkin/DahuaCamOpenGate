@@ -250,6 +250,45 @@ def api_open_gate():
         return jsonify({"success": False, "message": "Failed to open gate"}),  502
 
 
+@app.route("/time", methods=["GET"])
+def browser_get_time():
+    """Получить время камеры — вызов из браузера по обычному URL."""
+    return api_get_time()
+
+
+@app.route("/gate/open", methods=["GET"])
+def browser_open_gate():
+    """
+    Открыть ворота — вызов из браузера по обычному URL.
+
+    Query-параметры (все опциональны):
+        channel      — канал камеры (по умолчанию 1)
+        plate_number — номер автомобиля (по умолчанию "")
+        open_type    — тип открытия: Normal, Emergency (по умолчанию Normal)
+
+    Пример: /gate/open?plate_number=A001AA111&channel=1
+    """
+    channel      = request.args.get("channel",      1,        type=int)
+    plate_number = request.args.get("plate_number", "")
+    open_type    = request.args.get("open_type",    "Normal")
+
+    logger.info(
+        "GET /gate/open — channel=%s, plate='%s', type=%s",
+        channel, plate_number, open_type
+    )
+
+    success = camera.open_strobe(
+        channel=channel,
+        plate_number=plate_number,
+        open_type=open_type
+    )
+
+    if success:
+        return jsonify({"success": True,  "message": "Gate opened"}),         200
+    else:
+        return jsonify({"success": False, "message": "Failed to open gate"}), 502
+
+
 # ---------------------------------------------------------------------------
 # Точка входа
 # ---------------------------------------------------------------------------

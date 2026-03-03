@@ -74,6 +74,86 @@ paths:
                     error_code: 401
                     error_message: Unauthorized
 
+  /time:
+    get:
+      summary: Получить текущее время камеры (вызов из браузера)
+      operationId: getTimeBrowser
+      description: Псевдоним `/api/time` для удобного вызова из браузера по обычному URL.
+      responses:
+        "200":
+          description: Время успешно получено
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeSuccess"
+              example:
+                success: true
+                camera_time: "2026-02-24 12:00:00"
+                local_time: "2026-02-24 12:00:05"
+                is_valid_format: true
+                raw_response: "2026-02-24 12:00:00"
+        "502":
+          description: Ошибка при обращении к камере
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /gate/open:
+    get:
+      summary: Открыть ворота (вызов из браузера)
+      operationId: openGateBrowser
+      description: |
+        Открывает ворота через GET-запрос с параметрами в строке URL.
+        Удобен для вызова из браузера или простой интеграции без JSON-тела.
+
+        Пример: `/gate/open?plate_number=A001AA111&channel=1`
+      parameters:
+        - name: channel
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+          description: Канал камеры
+          example: 1
+        - name: plate_number
+          in: query
+          required: false
+          schema:
+            type: string
+            default: ""
+          description: Номер автомобиля
+          example: A001AA111
+        - name: open_type
+          in: query
+          required: false
+          schema:
+            type: string
+            default: Normal
+            enum: [Normal, Emergency]
+          description: Тип открытия
+          example: Normal
+      responses:
+        "200":
+          description: Ворота успешно открыты
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GateSuccess"
+              example:
+                success: true
+                message: Gate opened
+        "502":
+          description: Не удалось открыть ворота (ошибка со стороны камеры)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GateFailure"
+              example:
+                success: false
+                message: Failed to open gate
+
   /api/gate/open:
     post:
       summary: Открыть ворота
